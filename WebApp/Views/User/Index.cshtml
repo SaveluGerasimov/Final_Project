@@ -1,0 +1,381 @@
+﻿@using WebApp.Models.View.User
+@model PagedResult<UserViewModel>
+@{
+    var pageSizes = new[] { 20, 50, 100 };
+}
+
+<div>
+    <form method="get" asp-action="Index" id="pageSizeForm">
+        <label for="pageSize">Показать:</label>
+        @Html.DropDownListFor(
+        m => m.PageSize,
+                new SelectList(pageSizes, Model.PageSize),
+                new { id = "pageSize", onchange = "resetPageAndSubmit()" }
+                )
+        <input type="hidden" name="page" id="pageInput" value="@Model.PageNumber" />
+    </form>
+</div>
+
+@if (Model.Items.Any())
+{   <div class="table-wrap">
+    <table class="user-table">
+        <thead>
+            <tr>
+                <th colspan="10" class="table-title">Пользователи</th>
+            </tr>
+            <tr>
+                <td>Id</td>
+                <td>UserName</td>
+                <td>Email</td>
+                <td>FirstName</td>
+                <td>LastName</td>
+                <td>FatherName</td>
+                <td>BirthDate</td>
+                <td>Role</td>
+                <td>Change</td>
+                <td>Delete</td>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var user in Model.Items)
+            {
+                <tr data-id="@user.Id">
+                    <td>@user.Id</td>
+                    <td class="editable" data-field="UserName">@user.UserName</td>
+                    <td class="editable" data-field="Email">@user.Email</td>
+                    <td class="editable" data-field="FirstName">@user.FirstName</td>
+                    <td class="editable" data-field="LastName">@user.LastName</td>
+                    <td class="editable" data-field="FatherName">@user.FatherName</td>
+                    <td class="editable" data-field="BirthDate">@user.BirthDate.ToString("yyyy-MM-dd")</td>
+                    <td class="editable" data-field="Role">@user.Role</td>
+                    <td>
+                        <button class="btn-save" style="display:none;">Сохранить</button>
+                    </td>
+                        <td>
+                            <form method="post" asp-action="Delete" asp-controller="User" onsubmit="return confirmDelete('@user.FirstName', '@user.LastName', '@user.UserName');">
+                                <input type="hidden" name="id" value="@user.Id" />
+                                <button type="submit" class="icon-btn" aria-label="Удалить пользователя @user.UserName">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                </tr>
+            }
+        </tbody>
+
+    </table>
+    </div>
+    <!-- Пагинация -->
+    <div class="pagination">
+        @for (int i = 1; i <= Model.TotalPages; i++)
+        {
+            if (i == Model.PageNumber)
+            {
+                <span class="current">@i</span>
+            }
+            else
+            {
+                <a href="@Url.Action("Index", new { page = i, pageSize = Model.PageSize })">@i</a>
+            }
+        }
+    </div>
+}
+else
+{
+    <p>Нет данных для отображения.</p>
+}
+
+<script>
+    function resetPageAndSubmit() {
+        document.getElementById('pageInput').value = 1;
+        document.getElementById('pageSizeForm').submit();
+    }
+
+    // Делегирование: входим в редактирование по двойному клику
+    document.querySelectorAll('.user-table tbody tr').forEach(row => {
+        const saveBtn = row.querySelector('.btn-save');
+        if (!saveBtn) return;
+
+        // Флаг, что в строке есть изменения
+        let rowChanged = false;
+
+        row.querySelectorAll('.editable').forEach(td => {
+            td.addEventListener('dblclick', () => enterEdit(td));
+        });
+
+        function enterEdit(td) {
+            // уже редактируется?
+            if (td.classList.contains('editing')) return;
+
+            const field = td.dataset.field;
+            const original = td.innerText.trim();
+            td.dataset.original = original;
+            td.classList.add('editing');
+
+            // инпут: дата для BirthDate, иначе текст
+            const isDate = field === 'BirthDate';
+            const input = document.createElement('input');
+            input.type = isDate ? 'date' : 'text';
+            input.value = original; // для даты ожидается формат yyyy-MM-dd
+            input.className = 'cell-input';
+            td.innerHTML = '';
+            td.appendChild(input);
+            input.focus();
+            input.select();
+
+            // Подтвердить изменение
+            const confirm = () => {
+                const newVal = input.value.trim();
+                td.classList.remove('editing');
+                td.innerText = newVal;
+
+                if (newVal !== original) {
+                    rowChanged = true;
+                    saveBtn.style.display = 'inline-block';
+                }
+            };
+
+            // Отменить изменение
+            const cancel = () => {
+                td.classList.remove('editing');
+                td.innerText = original;
+            };
+
+            // Enter — подтвердить, Esc — отменить
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    confirm();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancel();
+                }
+            });
+
+            // Потеря фокуса — тоже подтверждаем (как в таблицах)
+            input.addEventListener('blur', confirm);
+        }
+
+        saveBtn.addEventListener('click', async () => {
+            const userId = row.dataset.id;
+            const updatedData = {};
+            row.querySelectorAll('.editable').forEach(td => {
+                updatedData[td.dataset.field] = td.innerText.trim();
+            });
+
+            try {
+                const response = await fetch(`/User/Edit/${userId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updatedData)
+                });
+
+                if (response.ok) {
+                    alert('Пользователь успешно обновлён');
+                    saveBtn.style.display = 'none';
+                    rowChanged = false;
+                } else {
+                    const err = await response.text();
+                    alert('Ошибка: ' + err);
+                }
+            } catch (err) {
+                alert('Ошибка: ' + err);
+            }
+        });
+    });
+
+    //Удаление
+             function confirmDelete(firstName, lastName, userName) {
+        const displayName = `${firstName} ${lastName} (${userName})`;
+        return confirm(`Вы уверены, что хотите удалить пользователя "${displayName}"?`);
+    }
+
+
+</script>
+
+<style>
+    .btn-save {
+        padding: 4px 8px;
+        border-radius: 4px;
+        background-color: #28a745;
+        color: white;
+        border: none;
+        cursor: pointer;
+    }
+
+        .btn-save:hover {
+            background-color: #218838;
+        }
+    /* Форма выбора количества элементов */
+    form#pageSizeForm {
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: Arial, sans-serif;
+        font-size: 0.95rem;
+    }
+
+        form#pageSizeForm label {
+            font-weight: bold;
+        }
+
+        form#pageSizeForm select {
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+            form#pageSizeForm select:hover {
+                border-color: #007bff;
+            }
+
+    /* Таблица пользователей */
+    .user-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+        font-family: Arial, sans-serif;
+        font-size: 0.95rem;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+        .user-table th, .user-table td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .user-table th {
+            background-color: #f5f5f5;
+            font-weight: bold;
+        }
+
+        .user-table tbody tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+
+        .user-table tbody tr:hover {
+            background-color: #f1f1f1;
+            cursor: pointer;
+        }
+
+    .table-title {
+        text-align: center;
+        font-size: 1.3rem;
+        font-weight: bold;
+        background-color: #eaeaea;
+        padding: 12px;
+        border-bottom: 2px solid #ccc;
+    }
+
+    /* Пагинация */
+    .pagination {
+        margin-top: 16px;
+        display: flex;
+        gap: 6px;
+        justify-content: center;
+        font-family: Arial, sans-serif;
+    }
+
+        .pagination a, .pagination span {
+            padding: 6px 12px;
+            border: 1px solid #ccc;
+            text-decoration: none;
+            color: #333;
+            border-radius: 4px;
+            transition: background-color 0.2s, color 0.2s;
+        }
+
+            .pagination a:hover {
+                background-color: #007bff;
+                color: #fff;
+            }
+
+        .pagination .current {
+            background-color: #007bff;
+            color: white;
+            font-weight: bold;
+            pointer-events: none;
+        }
+
+    /* Отступ для пустого состояния */
+    p {
+        margin-top: 12px;
+        font-style: italic;
+        color: #555;
+    }
+
+    /* Горизонтальный скролл, если не помещается */
+    .table-wrap {
+        width: 100%;
+        overflow-x: auto; /* появится нижний ползунок при необходимости */
+        overflow-y: hidden;
+    }
+
+    /* Чтобы таблица реже ломалась и появлялся скролл при узком экране */
+    .user-table {
+        min-width: 1100px; /* подбери под свои колонки */
+    }
+
+        /* Не переносить текст в ячейках — лучше дать скролл */
+        .user-table th, .user-table td {
+            white-space: nowrap;
+        }
+
+    /* Укажем, что ячейки редактируемые */
+    .editable {
+        cursor: text;
+        user-select: none; /* чтобы двойной клик не выделял текст */
+    }
+
+    /* Вид инпута в ячейке */
+    .cell-input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #bbb;
+        border-radius: 4px;
+        padding: 4px 6px;
+        font: inherit;
+        outline: none;
+    }
+
+        .cell-input:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,.15);
+        }
+
+    .btn-save {
+        padding: 4px 8px;
+        border-radius: 4px;
+        background-color: #28a745;
+        color: white;
+        border: none;
+        cursor: pointer;
+    }
+
+        .btn-save:hover {
+            background-color: #218838;
+        }
+
+        /* Удаление */
+    .icon-btn {
+        background: none;
+        border: none;
+        color: #6c757d;
+        cursor: pointer;
+        padding: 5px 8px;
+        border-radius: 3px;
+        transition: all 0.2s;
+    }
+
+        .icon-btn:hover {
+            color: #dc3545;
+            background-color: #f8f9fa;
+        }
+</style>
